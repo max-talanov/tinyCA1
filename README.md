@@ -7,3 +7,8 @@ Please, install with python(this key: --with-nrnpython) and mpi(key: --with-para
 
 Then try tiny.py with 
 python3 tiny.py
+
+Currently it contains only three grops of neurons of CA1:
+Pyramidal, 
+Basket,
+OLM
