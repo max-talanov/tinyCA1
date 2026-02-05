@@ -71,6 +71,32 @@ def mean_rate(pop, spk, sim_ms: float) -> float:
     return len(ev["senders"]) / (len(pop) * (sim_ms / 1000.0))
 
 
+
+# -------------------------
+# Theta modulation helper
+# -------------------------
+
+def maybe_make_theta_generators(n: int, rate_mean: float, rate_amp: float, freq_hz: float, phase: float = 0.0):
+    """Create N sinusoidally-modulated Poisson generators (if available in this NEST build).
+
+    Returns:
+        NodeCollection of generators, or None if the model is unavailable.
+    """
+    try:
+        gens = nest.Create(
+            "sinusoidal_poisson_generator",
+            int(n),
+            params={
+                "rate": float(rate_mean),
+                "amplitude": float(rate_amp),
+                "frequency": float(freq_hz),
+                "phase": float(phase),
+            },
+        )
+        return gens
+    except Exception as e:
+        print(f"[theta] sinusoidal_poisson_generator not available ({e}); running without theta.")
+        return None
 # -------------------------
 # Build CA1 microcircuit
 # -------------------------
@@ -219,6 +245,20 @@ def build_ca1_ca3_izh(
     rate_dg_ca3_pyr=1000.0,
     rate_drive_ca1_basket=1200.0,
     rate_drive_ca3_int=1200.0,
+    # --- Theta rhythm (optional, via sinusoidally-modulated Poisson drive)
+    theta_on: bool = False,
+    theta_hz: float = 8.0,
+    # mean/amplitude rates (Hz) per neuron
+    theta_rate_mean_ca3: float = 250.0,
+    theta_rate_amp_ca3: float = 200.0,
+    theta_rate_mean_ca1: float = 200.0,
+    theta_rate_amp_ca1: float = 150.0,
+    # weights (mV jump per theta spike)
+    theta_w_ca3_pyr: float = 0.25,
+    theta_w_ca3_int: float = 0.20,
+    theta_w_ca1_pyr: float = 0.20,
+    theta_w_ca1_int: float = 0.15,
+    theta_delay: float = 1.0,
     # --- RNG seed
     seed_connect=42,
 ):
@@ -315,6 +355,42 @@ def build_ca1_ca3_izh(
         DRIVE_to_CA3_INT, CA3_INT, conn_spec="one_to_one", syn_spec={"weight": w_drive, "delay": d_fast}
     )
 
+
+    # --- Theta rhythm (optional)
+    if theta_on:
+        # CA3 theta drive
+        th_ca3_pyr = maybe_make_theta_generators(len(CA3_PYR), theta_rate_mean_ca3, theta_rate_amp_ca3, theta_hz)
+        if th_ca3_pyr is not None:
+            nest.Connect(
+                th_ca3_pyr, CA3_PYR, conn_spec="one_to_one",
+                syn_spec={"weight": float(theta_w_ca3_pyr), "delay": float(theta_delay)},
+            )
+        th_ca3_int = maybe_make_theta_generators(len(CA3_INT), theta_rate_mean_ca3, theta_rate_amp_ca3, theta_hz)
+        if th_ca3_int is not None:
+            nest.Connect(
+                th_ca3_int, CA3_INT, conn_spec="one_to_one",
+                syn_spec={"weight": float(theta_w_ca3_int), "delay": float(theta_delay)},
+            )
+
+        # CA1 theta drive
+        th_ca1_pyr = maybe_make_theta_generators(len(CA1_PYR), theta_rate_mean_ca1, theta_rate_amp_ca1, theta_hz)
+        if th_ca1_pyr is not None:
+            nest.Connect(
+                th_ca1_pyr, CA1_PYR, conn_spec="one_to_one",
+                syn_spec={"weight": float(theta_w_ca1_pyr), "delay": float(theta_delay)},
+            )
+        th_ca1_ba = maybe_make_theta_generators(len(CA1_BASKET), theta_rate_mean_ca1, theta_rate_amp_ca1, theta_hz)
+        if th_ca1_ba is not None:
+            nest.Connect(
+                th_ca1_ba, CA1_BASKET, conn_spec="one_to_one",
+                syn_spec={"weight": float(theta_w_ca1_int), "delay": float(theta_delay)},
+            )
+        th_ca1_olm = maybe_make_theta_generators(len(CA1_OLM), theta_rate_mean_ca1, theta_rate_amp_ca1, theta_hz)
+        if th_ca1_olm is not None:
+            nest.Connect(
+                th_ca1_olm, CA1_OLM, conn_spec="one_to_one",
+                syn_spec={"weight": float(theta_w_ca1_int), "delay": float(theta_delay)},
+            )
     # --- Recurrent connectivity (explicit Bernoulli)
     rng = np.random.default_rng(int(seed_connect))
 
@@ -471,6 +547,13 @@ if __name__ == "__main__":
         rate_ca3_drive_pyr=600.0,
         rate_drive_ca1_basket=1200.0,
         rate_drive_ca3_int=1200.0,
+        # Theta (optional)
+        theta_on=True,
+        theta_hz=8.0,
+        theta_rate_mean_ca3=250.0,
+        theta_rate_amp_ca3=200.0,
+        theta_rate_mean_ca1=200.0,
+        theta_rate_amp_ca1=150.0,
     )
     run_report_plot(net, sim_ms=1000.0)
 
