@@ -304,9 +304,9 @@ def build_ca1_ca3_izh(
     theta_rate_mean_ca1: float = 200.0,
     theta_rate_amp_ca1: float = 150.0,
     # weights (mV jump per theta spike)
-    theta_w_ca3_pyr: float = 1.25,
+    theta_w_ca3_pyr: float = 0.25,
     theta_w_ca3_int: float = 0.20,
-    theta_w_ca1_pyr: float = 1.20,
+    theta_w_ca1_pyr: float = 0.20,
     theta_w_ca1_int: float = 0.15,
     theta_delay: float = 1.0,
     # --- SWR events (optional; toy approximation of sharp-wave ripple bursts)
@@ -606,6 +606,12 @@ def build_ca1_ca3_izh(
         vm=vm,
         ca1_probe=ca1_probe,
         ca3_probe=ca3_probe,
+        # metadata (for plotting / debugging)
+        theta_on=bool(theta_on),
+        theta_hz=float(theta_hz),
+        swr_on=bool(swr_on),
+        swr_events=list(swr_events) if swr_on and swr_events is not None else [],
+        swr_ripple_hz=float(swr_ripple_hz),
     )
 
 
@@ -657,6 +663,53 @@ def run_report_plot(net, sim_ms=1000.0):
         raster(net["spk_ca3_pyr"], "CA3 PYR spikes (izhikevich)")
         raster(net["spk_ca3_int"], "CA3 INH spikes (izhikevich)")
 
+    # --- Population rate traces (this is where theta/SWR become obvious)
+    def get_times(spk):
+        ev = nest.GetStatus(spk, "events")[0]
+        return np.asarray(ev["times"], dtype=float)
+
+    def binned_rate(times_ms, t_stop_ms, n_cells, bin_ms):
+        edges = np.arange(0.0, t_stop_ms + bin_ms, bin_ms)
+        counts, _ = np.histogram(times_ms, bins=edges)
+        rate_hz = counts / (bin_ms / 1000.0) / max(int(n_cells), 1)
+        centers = edges[:-1] + bin_ms / 2.0
+        return centers, rate_hz
+
+    def shade_swr(ax):
+        if net.get("swr_on", False):
+            for (s, e) in net.get("swr_events", []):
+                ax.axvspan(float(s), float(e), alpha=0.15)
+
+    # Low-res (sharp wave envelope)
+    bin_env = 10.0  # ms
+    plt.figure()
+    t, r = binned_rate(get_times(net["spk_pyr"]), sim_ms, len(net["PYR"]), bin_env)
+    plt.plot(t, r, label="CA1 PYR")
+    if "CA3_PYR" in net:
+        t3, r3 = binned_rate(get_times(net["spk_ca3_pyr"]), sim_ms, len(net["CA3_PYR"]), bin_env)
+        plt.plot(t3, r3, label="CA3 PYR")
+    plt.xlabel("Time (ms)")
+    plt.ylabel(f"Rate (Hz), {bin_env:g} ms bins")
+    plt.title("Population rate (envelope) with SWR window")
+    ax = plt.gca()
+    shade_swr(ax)
+    plt.legend()
+
+    # High-res (ripple band visibility)
+    bin_rip = 2.0  # ms ~ can resolve ~180 Hz structure
+    plt.figure()
+    if "CA3_PYR" in net:
+        t3i, r3i = binned_rate(get_times(net["spk_ca3_int"]), sim_ms, len(net["CA3_INT"]), bin_rip)
+        plt.plot(t3i, r3i, label="CA3 INH")
+    t1b, r1b = binned_rate(get_times(net["spk_ba"]), sim_ms, len(net["BASKET"]), bin_rip)
+    plt.plot(t1b, r1b, label="CA1 Basket")
+    plt.xlabel("Time (ms)")
+    plt.ylabel(f"Rate (Hz), {bin_rip:g} ms bins")
+    plt.title("Fast population rate (ripple-scale) with SWR window")
+    ax = plt.gca()
+    shade_swr(ax)
+    plt.legend()
+
     # Vm trace per neuron (critical to avoid fake diagonals)
     ev = nest.GetStatus(net["vm"], "events")[0]
     times = np.array(ev["times"])
@@ -693,10 +746,10 @@ if __name__ == "__main__":
         # Theta (optional)
         theta_on=True,
         theta_hz=8.0,
-        theta_rate_mean_ca3=950.0,
-        theta_rate_amp_ca3=900.0,
-        theta_rate_mean_ca1=900.0,
-        theta_rate_amp_ca1=950.0,
+        theta_rate_mean_ca3=250.0,
+        theta_rate_amp_ca3=200.0,
+        theta_rate_mean_ca1=200.0,
+        theta_rate_amp_ca1=150.0,
         # SWR (optional)
         swr_on=True,
         swr_events=[(550.0, 630.0)],
